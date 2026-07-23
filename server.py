@@ -229,6 +229,8 @@ class Handler(SimpleHTTPRequestHandler):
             return self._send_json(400, {"error": "bad request"})
         # pasted keys often carry line-wraps / invisible whitespace (Mail, Notes) — scrub, don't reject
         key = "".join(key.split())
+        if not key.isascii():
+            return self._send_json(400, {"error": "the key has odd characters in it (smart punctuation?) — copy it fresh from console.anthropic.com and paste again"})
         if len(key) < 20:
             return self._send_json(400, {"error": "that doesn't look like an API key — paste the whole thing"})
         if anthropic is None:
@@ -237,11 +239,15 @@ class Handler(SimpleHTTPRequestHandler):
             probe = anthropic.Anthropic(api_key=key, base_url="https://api.anthropic.com")
             probe.messages.count_tokens(model=MODEL, messages=[{"role": "user", "content": "hi"}])
         except anthropic.AuthenticationError:
-            return self._send_json(401, {"error": "the API rejected that key — double-check you copied the whole thing"})
+            return self._send_json(401, {"error": "the API rejected that key — make sure it's the CURRENT key from console.anthropic.com (regenerating there kills the old one)"})
         except anthropic.APIConnectionError:
             return self._send_json(503, {"error": "no network to the API right now"})
-        except Exception:
-            pass  # authenticated but e.g. model-permission quirk — save and let orders surface it
+        except anthropic.NotFoundError:
+            return self._send_json(403, {"error": "the key works, but this account can't use " + MODEL + " — check your plan in the console"})
+        except Exception as e:
+            # never save a key we couldn't verify — that leaves a silent landmine
+            print("key validation error:", repr(e), flush=True)
+            return self._send_json(500, {"error": "couldn't verify the key: " + str(e)})
         save_key(key)
         reset_client()
         self._send_json(200, {"ok": True})
