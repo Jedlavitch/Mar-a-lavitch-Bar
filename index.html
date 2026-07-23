@@ -852,6 +852,15 @@ function normalizeAiRecipe(r) {
 
 async function aiOrder(raw, fallbackMatch) {
   if (aiBusy) return;
+  if (backendAvailable === false) {
+    if (fallbackMatch) {
+      toast(STATIC_COPY_MSG + ' Pouring the closest classic: ' + fallbackMatch.r.name, 8000);
+      startRecipe(fallbackMatch.r);
+    } else {
+      toast(STATIC_COPY_MSG, 8000);
+    }
+    return;
+  }
   aiBusy = true;
   $('idleMsg').style.display = 'none';
   $('recipeBody').style.display = 'none';
@@ -896,7 +905,10 @@ function showKeyPanel(show) { $('keyPanel').style.display = show ? 'block' : 'no
 
 $('aiPill').style.cursor = 'pointer';
 $('aiPill').title = 'Click to connect / change the AI key';
-$('aiPill').onclick = () => showKeyPanel($('keyPanel').style.display === 'none');
+$('aiPill').onclick = () => {
+  if (backendAvailable === false) { toast(STATIC_COPY_MSG, 8000); return; }
+  showKeyPanel($('keyPanel').style.display === 'none');
+};
 
 $('keySaveBtn').onclick = async () => {
   const key = $('keyInput').value.trim();
@@ -910,6 +922,7 @@ $('keySaveBtn').onclick = async () => {
       body: JSON.stringify({ key }),
     });
     const data = await res.json().catch(() => ({}));
+    if (res.status === 404 || res.status === 405) throw new Error(STATIC_COPY_MSG);
     if (!res.ok || !data.ok) throw new Error(data.error || ('the server said no (HTTP ' + res.status + ')'));
     $('keyInput').value = '';
     showKeyPanel(false);
@@ -934,13 +947,24 @@ $('keySaveBtn').onclick = async () => {
 $('keyInput').addEventListener('keydown', e => { if (e.key === 'Enter') $('keySaveBtn').click(); });
 
 // on load, ask the server whether a key is already saved — any device that hits a
-// connected server shows ✓ immediately and never nags for the key again
+// connected server shows ✓ immediately and never nags for the key again. A static
+// copy (GitHub Pages etc.) has no /api at all: say so instead of failing cryptically.
+let backendAvailable = null;
+const STATIC_COPY_MSG = 'This copy is the static build — no AI behind it. On your home Wi-Fi, ' +
+  'open the bar server instead: https://<your-mac-ip>:8792 (camera + AI).';
 (async function refreshAiStatus() {
   try {
     const res = await fetch('/api/status');
+    if (!res.ok) throw new Error('no backend');
     const data = await res.json();
+    backendAvailable = true;
     if (data.ai_ready) { setAiState(true); showKeyPanel(false); }
-  } catch (e) { /* no server (e.g. GitHub Pages) — leave the pill neutral */ }
+  } catch (e) {
+    backendAvailable = false;
+    $('aiPillText').textContent = 'classics only — AI lives on the bar server';
+    $('aiPill').style.opacity = '0.55';
+    showKeyPanel(false);
+  }
 })();
 
 // ---------- voice ----------
