@@ -224,11 +224,13 @@ class Handler(SimpleHTTPRequestHandler):
         it with a free token-count call, then persist it to the gitignored .env."""
         try:
             length = int(self.headers.get("Content-Length", 0))
-            key = json.loads(self.rfile.read(length)).get("key", "").strip()
+            key = json.loads(self.rfile.read(length)).get("key", "")
         except Exception:
             return self._send_json(400, {"error": "bad request"})
-        if len(key) < 20 or any(c.isspace() for c in key):
-            return self._send_json(400, {"error": "that doesn't look like an API key"})
+        # pasted keys often carry line-wraps / invisible whitespace (Mail, Notes) — scrub, don't reject
+        key = "".join(key.split())
+        if len(key) < 20:
+            return self._send_json(400, {"error": "that doesn't look like an API key — paste the whole thing"})
         if anthropic is None:
             return self._send_json(503, {"error": "pip3 install anthropic first, then restart"})
         try:
@@ -244,8 +246,16 @@ class Handler(SimpleHTTPRequestHandler):
         reset_client()
         self._send_json(200, {"ok": True})
 
+    def do_GET(self):
+        if self.path == "/api/status":
+            has_key = bool(_read_env_file().get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_API_KEY"))
+            return self._send_json(200, {"ai_ready": anthropic is not None and has_key})
+        return super().do_GET()
+
     def log_message(self, fmt, *args):
-        pass  # keep the console quiet; errors surface as JSON
+        # static files stay quiet; API traffic is logged for debugging
+        if "/api/" in (self.path or ""):
+            print(self.address_string(), fmt % args, flush=True)
 
 
 def ensure_cert() -> bool:

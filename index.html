@@ -910,7 +910,7 @@ $('keySaveBtn').onclick = async () => {
       body: JSON.stringify({ key }),
     });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok || !data.ok) throw new Error(data.error || 'could not save the key');
+    if (!res.ok || !data.ok) throw new Error(data.error || ('the server said no (HTTP ' + res.status + ')'));
     $('keyInput').value = '';
     showKeyPanel(false);
     setAiState(true);
@@ -922,13 +922,26 @@ $('keySaveBtn').onclick = async () => {
       aiOrder(order, localMatch(order.toLowerCase()));
     }
   } catch (err) {
-    toast(err.message, 5500);
+    const msg = (err instanceof TypeError)
+      ? "Can't reach the server from this device — connect once from the Mac instead; every other device picks it up automatically."
+      : err.message;
+    toast(msg, 6500);
   } finally {
     $('keySaveBtn').disabled = false;
     $('keySaveBtn').textContent = 'Connect';
   }
 };
 $('keyInput').addEventListener('keydown', e => { if (e.key === 'Enter') $('keySaveBtn').click(); });
+
+// on load, ask the server whether a key is already saved — any device that hits a
+// connected server shows ✓ immediately and never nags for the key again
+(async function refreshAiStatus() {
+  try {
+    const res = await fetch('/api/status');
+    const data = await res.json();
+    if (data.ai_ready) { setAiState(true); showKeyPanel(false); }
+  } catch (e) { /* no server (e.g. GitHub Pages) — leave the pill neutral */ }
+})();
 
 // ---------- voice ----------
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
